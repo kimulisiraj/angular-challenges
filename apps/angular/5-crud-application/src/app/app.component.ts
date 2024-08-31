@@ -1,51 +1,120 @@
 import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
-import { Component, OnInit } from '@angular/core';
-import { randText } from '@ngneat/falso';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  effect,
+  inject,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatCardModule } from '@angular/material/card';
+import { MatDialog } from '@angular/material/dialog';
+import { MatSnackBar } from '@angular/material/snack-bar';
+import { getState } from '@ngrx/signals';
+
+import { LoadingDialogComponent, TodoListItemComponent } from './components';
+import { Todo } from './models';
+import { TodoApiService } from './services';
+import { TodosStore } from './state';
 
 @Component({
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, MatCardModule, TodoListItemComponent],
+  providers: [TodosStore],
   selector: 'app-root',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div *ngFor="let todo of todos">
-      {{ todo.title }}
-      <button (click)="update(todo)">Update</button>
+    <div class="container">
+      @if (store.todos(); as todos) {
+        <mat-card>
+          <mat-card-content>
+            <ul>
+              @for (todo of todos; track todo.id) {
+                <li>
+                  <app-todo-list-item
+                    [todo]="todo"
+                    [isLoading]="
+                      store.updatingTodoId() === todo.id && store.isLoading()
+                    "
+                    [error]="
+                      store.updatingTodoId() === todo.id && store.error()
+                    "
+                    (updateTodoEvent)="updateTodo($event)"
+                    (deleteTodoEvent)="deleteTodo($event)"></app-todo-list-item>
+                </li>
+              } @empty {
+                <li>There are no todos.</li>
+              }
+            </ul>
+          </mat-card-content>
+        </mat-card>
+      }
     </div>
   `,
-  styles: [],
+  styles: `
+    mat-card {
+      width: fit-content;
+      margin: 20px auto;
+    }
+
+    ul {
+      list-style-type: none;
+      padding-inline-start: 0;
+    }
+  `,
 })
-export class AppComponent implements OnInit {
-  todos!: any[];
+export class AppComponent {
+  public readonly store = inject(TodosStore);
+  private readonly todoApiService = inject(TodoApiService);
+  private readonly dialog = inject(MatDialog);
+  private readonly snackbar = inject(MatSnackBar);
+  private readonly destroyRef = inject(DestroyRef);
 
-  constructor(private http: HttpClient) {}
+  constructor() {
+    effect(() => {
+      const state = getState(this.store);
 
-  ngOnInit(): void {
-    this.http
-      .get<any[]>('https://jsonplaceholder.typicode.com/todos')
-      .subscribe((todos) => {
-        this.todos = todos;
-      });
+      if (state.todos === undefined && state.isLoading) {
+        this.dialog.open(LoadingDialogComponent);
+      } else {
+        this.dialog.closeAll();
+      }
+
+      if (state.error) {
+        this.snackbar.open('Error occurred', undefined, { duration: 3000 });
+      }
+    });
   }
 
-  update(todo: any) {
-    this.http
-      .put<any>(
-        `https://jsonplaceholder.typicode.com/todos/${todo.id}`,
-        JSON.stringify({
-          todo: todo.id,
-          title: randText(),
-          body: todo.body,
-          userId: todo.userId,
-        }),
-        {
-          headers: {
-            'Content-type': 'application/json; charset=UTF-8',
-          },
-        },
-      )
-      .subscribe((todoUpdated: any) => {
-        this.todos[todoUpdated.id - 1] = todoUpdated;
-      });
+  ngOnInit(): void {
+    this.todoApiService
+      .getAll()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(
+        (todos) => this.store.setTodos(todos),
+        (error) => this.store.setError(error),
+      );
+  }
+
+  updateTodo(todo: Todo): void {
+    this.store.updateTodo(todo.id);
+    this.todoApiService
+      .update(todo)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(
+        (updatedTodo: Todo) => this.store.changeTodo(updatedTodo),
+        (error) => this.store.setError(error),
+      );
+  }
+
+  deleteTodo(todo: Todo): void {
+    this.store.updateTodo(todo.id);
+    this.todoApiService
+      .delete(todo)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(
+        () => this.store.deleteTodo(todo),
+        (error) => this.store.setError(error),
+      );
   }
 }
