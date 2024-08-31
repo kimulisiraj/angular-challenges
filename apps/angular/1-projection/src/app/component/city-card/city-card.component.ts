@@ -1,13 +1,42 @@
-import { Component, OnInit } from '@angular/core';
+import { NgOptimizedImage } from '@angular/common';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { CityStore } from '../../data-access/city.store';
+import { CardComponent } from '../../ui/card/card.component';
+import { CardRowDirective } from '../../ui/card/card.directive';
+import { ListItemComponent } from '../../ui/list-item/list-item.component';
 
 @Component({
   selector: 'app-city-card',
-  template: 'TODO City',
+  template: `
+    <app-card
+      (addNewItem)="cityStore.addOne()"
+      [items]="cityStore.$cities()"
+      class="bg-light-purple">
+      <img ngSrc="assets/img/city.png" width="200" height="200" alt="city" />
+      <ng-template [cardRow]="cityStore.$cities()" let-city>
+        <app-list-item (delete)="cityStore.deleteOne(city.id)">
+          {{ city.name }}
+        </app-list-item>
+      </ng-template>
+    </app-card>
+  `,
   standalone: true,
-  imports: [],
+  styles: [
+    `
+      .bg-light-purple {
+        background-color: rgb(35 40 225 / 56%);
+      }
+    `,
+  ],
+  imports: [
+    CardComponent,
+    CardRowDirective,
+    ListItemComponent,
+    NgOptimizedImage,
+  ],
+  providers: [CityStore],
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CityCardComponent implements OnInit {
-  constructor() {}
-
-  ngOnInit(): void {}
+export class CityCardComponent {
+  readonly cityStore = inject(CityStore);
 }
